@@ -62,6 +62,43 @@ describe("lerModalidades", () => {
     expect(lida.logo).toBe("");
   });
 
+  it("reads the operator an OnlogRed modality is quoted as", () => {
+    const [lida] = lerModalidades(JSON.stringify([{ ...modalidade(), idOperador: 132226, idOperadorCotacao: "13" }]));
+
+    expect(lida.idOperador).toBe(132226);
+    expect(lida.idOperadorCotacao).toBe(13);
+  });
+
+  // Jadlog: what the log resolved from the account each entry is quoted on.
+  it("reads the account's extra cost and cubage parameters", () => {
+    const [lida] = lerModalidades(
+      JSON.stringify([
+        {
+          ...modalidade(),
+          adicionalCusto: "2",
+          adicionalCustoPerc: "0",
+          cubagem: { fatorCubagem: "3333", isencaoCubagem: "1", isencaoCubagemKg: "5.0" },
+        },
+      ]),
+    );
+
+    expect(lida.adicionalCusto).toBe(2);
+    expect(lida.adicionalCustoPerc).toBe(0);
+    expect(lida.cubagem).toEqual({ fatorCubagem: 3333, isencaoCubagem: true, isencaoCubagemKg: 5 });
+  });
+
+  it("leaves out cubage parameters without a factor to divide by", () => {
+    const [semObjeto, semFator] = lerModalidades(
+      JSON.stringify([
+        { ...modalidade(), cubagem: null },
+        { ...modalidade(), cubagem: { fatorCubagem: 0, isencaoCubagem: 0, isencaoCubagemKg: 0 } },
+      ]),
+    );
+
+    expect(semObjeto.cubagem).toBeUndefined();
+    expect(semFator.cubagem).toBeUndefined();
+  });
+
   it("drops an entry that does not say which operator and modality it is", () => {
     const lidas = lerModalidades(JSON.stringify([modalidade(), { idOperador: 0, idModalidade: 3 }, { idOperador: 14 }]));
 

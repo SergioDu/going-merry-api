@@ -57,6 +57,18 @@ já resolvidas (tabelas, margem, descontos, config de operador) no campo
 (`src/frete/modalidades.ts`, mesma regra do `ValidaLimitesModalidade` do log) e se
 traduz a resposta de volta para o id de modalidade do log (`idModalidadeOnlog`).
 
+**Paridade com a v1 da Jadlog.** Produção ainda cota a Jadlog pela `jadlog/v1`
+(Node, `cotacaoapi/src/regra/rnCotacao.js`), que faz por conta o que a v2 não faz:
+cubagem pelos parâmetros da conta, `AdicionalCusto` somado ao custo antes da
+margem e escolha da conta mais barata na melhor conta. O log manda uma entrada por
+conta com esses parâmetros, e `src/frete/cotadorPorConta.ts` aplica as três regras
+em volta do `CotadorHttp`, sem mexer na API de cotação. A OnlogRed vai como
+operador 13 (`idOperadorCotacao`), porque a v2 só roteia as tabelas dela como
+Correios, e volta como 132226.
+
+A resposta da v2 não tem caixa confiável: fresca vem em camelCase, do cache dela em
+PascalCase. O `cotadorHttp.ts` lê os campos sem diferenciar maiúsculas.
+
 Com `FRETE_API_URL` vazia o serviço usa `CotadorSimulado` — valores falsos,
 marcados como tal em toda opção, para exercitar o caminho inteiro. Nunca em produção.
 

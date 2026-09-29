@@ -129,6 +129,11 @@ Tudo que sabe falar com ela está em [`src/frete/cotadorHttp.ts`](src/frete/cota
 `paraRequisicao` (o que mandamos) e `paraOpcao` (o que lemos de volta), com as
 fixtures em `test/frete/cotadorHttp.test.ts`.
 
+Por cima dele, [`src/frete/cotadorPorConta.ts`](src/frete/cotadorPorConta.ts) aplica o
+que a v1 da Jadlog faz por conta e a v2 não: cota cada modalidade no peso cubado
+da conta (uma chamada por peso distinto), soma o adicional de custo da conta antes
+da margem e, quando a modalidade vem em mais de uma conta, fica com a mais barata.
+
 ## Layout
 
 ```
@@ -137,6 +142,7 @@ src/planilha/linha.ts        # as 23 colunas do layout Padrão -> linha normaliz
 src/planilha/leitor.ts       # arquivo .xls/.xlsx -> linhas brutas (SheetJS)
 src/frete/frete.ts           # o contrato de frete (porta Cotador, PedidoCotacao, OpcaoFrete)
 src/frete/cotadorHttp.ts     # o adaptador do endpoint de frete — o ponto de troca
+src/frete/cotadorPorConta.ts # cubagem, adicional de custo e melhor conta (paridade com a jadlog/v1)
 src/frete/cotadorSimulado.ts # valores falsos enquanto o endpoint não existe
 src/frete/cotarLinhas.ts     # deduplicação + concorrência sobre a planilha inteira
 src/planilha/processamentos.ts # planilhas em cotação e resultados à espera do log (memória, com validade)

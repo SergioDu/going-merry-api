@@ -116,7 +116,7 @@ export function registerPlanilhaRoutes(app: FastifyInstance, deps: ServerDeps): 
     deps.processamentos.iniciar(id, linhas.length, operadores);
 
     // Not awaited: the answer goes out now, and the log polls for the result.
-    cotarLinhas(linhas, { cepOrigem, modalidades }, deps.cotador, deps.concorrencia)
+    cotarLinhas(linhas, { cepOrigem, modalidades, idPlanilha: id }, deps.cotador, deps.concorrencia)
       .then(({ linhas: cotadas, cotacoes }) => {
         const comErro = cotadas.filter((linha) => linha.erros.length > 0).length;
         const tempoMs = Date.now() - inicio;

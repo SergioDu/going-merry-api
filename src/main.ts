@@ -17,6 +17,7 @@ try {
 }
 
 import { CotadorHttp } from "./frete/cotadorHttp";
+import { CotadorPorConta } from "./frete/cotadorPorConta";
 import { CotadorSimulado } from "./frete/cotadorSimulado";
 import { CONCORRENCIA_PADRAO } from "./frete/cotarLinhas";
 import { Cotador } from "./frete/frete";
@@ -34,9 +35,11 @@ const FRETE_API_URL = process.env.FRETE_API_URL ?? "";
 const FRETE_API_KEY = process.env.FRETE_API_KEY ?? "";
 const FRETE_CONCORRENCIA = Number(process.env.FRETE_CONCORRENCIA ?? CONCORRENCIA_PADRAO);
 
-const cotador: Cotador = FRETE_API_URL
-  ? new CotadorHttp(FRETE_API_URL, { apiKey: FRETE_API_KEY || undefined })
-  : new CotadorSimulado();
+// The account rules (cubage, extra cost, best account) sit on top of whichever
+// cotador answers, so the simulated path exercises them too.
+const cotador: Cotador = new CotadorPorConta(
+  FRETE_API_URL ? new CotadorHttp(FRETE_API_URL, { apiKey: FRETE_API_KEY || undefined }) : new CotadorSimulado(),
+);
 
 const app = buildServer({
   deps: { cotador, concorrencia: FRETE_CONCORRENCIA, processamentos: new Processamentos() },

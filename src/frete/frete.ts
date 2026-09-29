@@ -24,6 +24,17 @@ export interface ModalidadeCotacao {
   descValorFixo: number;
   adicionalPercVlFinal: number;
   adicionalValorFixoVlFinal: number;
+  // The operator the API should price it as, when it is not `idOperador`.
+  // OnlogRed is priced by the Correios tables and the v2 route only routes it
+  // as Correios (13); the option still comes back under `idOperador`.
+  idOperadorCotacao?: number;
+  // Resolved by the log from the account the entry is quoted on (Jadlog). The
+  // v2 route leaves both out of the price, so they are applied here: the extra
+  // cost goes on the carrier's cost before the margin, and the cubage decides
+  // the weight the package is quoted at.
+  adicionalCusto?: number;
+  adicionalCustoPerc?: number;
+  cubagem?: ParametroCubagem;
   // How the log knows and shows it. The API's modality id is not the log's: the
   // log writes `idModalidadeOnlog` to the temp table.
   idModalidadeOnlog: number;
@@ -35,6 +46,15 @@ export interface ModalidadeCotacao {
   pesoMaximo: number;
   medidaMaximaPorLado: number;
   medidaMaxima: number;
+}
+
+// How an account cubes a package for one modality (tbCoreOperadorTipoCalculoCubagem):
+// cubed weight is L × A × P / factor, and with the exemption on, a cubed weight up
+// to `isencaoCubagemKg` is ignored in favour of the real one.
+export interface ParametroCubagem {
+  fatorCubagem: number;
+  isencaoCubagem: boolean;
+  isencaoCubagemKg: number;
 }
 
 // What a single row needs quoted. One request, one package, one destination.

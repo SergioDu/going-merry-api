@@ -31,6 +31,8 @@ export interface CotadorHttpOptions {
 
 const apenasDigitos = (cep: string) => cep.replace(/[^0-9]/g, "");
 
+const operadorCotacao = (m: ModalidadeCotacao) => m.idOperadorCotacao ?? m.idOperador;
+
 // The request body.
 function paraRequisicao(pedido: PedidoCotacao) {
   return {
@@ -45,7 +47,7 @@ function paraRequisicao(pedido: PedidoCotacao) {
     usarCache: true,
     modalidades: pedido.modalidades.map((m) => ({
       idModalidade: m.idModalidade,
-      idOperador: m.idOperador,
+      idOperador: operadorCotacao(m),
       idCoreOperadorConfig: m.idCoreOperadorConfig,
       idTabelaCusto: m.idTabelaCusto,
       idTabelaVenda: m.idTabelaVenda,
@@ -59,8 +61,10 @@ function paraRequisicao(pedido: PedidoCotacao) {
   };
 }
 
-// One quoted modality (mdModalidadeRetorno). Note `valorArcusto`, lower-case c:
-// that is how the API names it.
+// One quoted modality (mdModalidadeRetorno). The casing is not reliable: a fresh
+// answer comes in camelCase, one served from the API's cache in PascalCase, and
+// the AR cost is `valorArcusto` in one build and `valorArCusto` in another. Read
+// it through `normalizar`, never field by field.
 interface ModalidadeResposta {
   modalidadeId: number;
   valorDeCusto?: number;
@@ -79,7 +83,28 @@ interface ModalidadeResposta {
 
 interface RespostaCotacao {
   valores?: {
-    operadores?: { operador: number; modalidades?: ModalidadeResposta[] }[];
+    operadores?: { operador: number; modalidades?: Record<string, unknown>[] }[];
+  };
+}
+
+function normalizar(bruta: Record<string, unknown>): ModalidadeResposta {
+  const campos = new Map(Object.entries(bruta).map(([nome, valor]) => [nome.toLowerCase(), valor]));
+  const numero = (nome: string) => campos.get(nome) as number | undefined;
+
+  return {
+    modalidadeId: Number(campos.get("modalidadeid")),
+    valorDeCusto: numero("valordecusto"),
+    valorCustoSemAdicionais: numero("valorcustosemadicionais"),
+    valorSeguroCusto: numero("valorsegurocusto"),
+    valorArcusto: numero("valorarcusto"),
+    valorDeVenda: numero("valordevenda"),
+    valorVendaSemAdicionais: numero("valorvendasemadicionais"),
+    valorSeguroVenda: numero("valorsegurovenda"),
+    valorArVenda: numero("valorarvenda"),
+    prazo: numero("prazo"),
+    conta: campos.get("conta") as number | null | undefined,
+    success: campos.get("success") as boolean | undefined,
+    adicionais: campos.get("adicionais"),
   };
 }
 
@@ -178,16 +203,26 @@ export class CotadorHttp implements Cotador {
 
     const opcoes: OpcaoFrete[] = [];
 
-    for (const { operador, modalidades } of resposta.data?.valores?.operadores ?? []) {
-      for (const bruta of modalidades ?? []) {
-        // The answer names the modality the way the API knows it; the entry we
-        // sent says how the log knows it.
-        const modalidade = pedido.modalidades.find(
-          (m) => m.idOperador === operador && m.idModalidade === bruta.modalidadeId,
-        );
-        if (!modalidade) continue;
+    // The answer names the modality the way the API knows it; the entry we sent
+    // says how the log knows it. The same operator and modality can go out more
+    // than once — one per account, or a Correios and an OnlogRed modality priced
+    // alike — so the account tells them apart when both sides name one, and each
+    // entry answers once, in the order it was sent.
+    const respondidas = new Set<number>();
 
-        const opcao = paraOpcao(bruta, modalidade);
+    for (const { operador, modalidades } of resposta.data?.valores?.operadores ?? []) {
+      for (const bruta of (modalidades ?? []).map(normalizar)) {
+        const indice = pedido.modalidades.findIndex(
+          (m, i) =>
+            !respondidas.has(i) &&
+            operadorCotacao(m) === operador &&
+            m.idModalidade === bruta.modalidadeId &&
+            (m.idCoreOperadorConfig <= 0 || bruta.conta == null || m.idCoreOperadorConfig === bruta.conta),
+        );
+        if (indice < 0) continue;
+        respondidas.add(indice);
+
+        const opcao = paraOpcao(bruta, pedido.modalidades[indice]);
         if (opcao) opcoes.push(opcao);
       }
     }

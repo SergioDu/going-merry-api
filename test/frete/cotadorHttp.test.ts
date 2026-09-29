@@ -261,6 +261,123 @@ describe("CotadorHttp", () => {
 
     await expect(cotadorCom(post).cotar(pedido())).rejects.toThrow();
   });
+
+  // The API's cache hands back what it stored, serialized with .NET's default
+  // PascalCase, while a fresh answer comes in camelCase.
+  it("reads a cached answer written in PascalCase", async () => {
+    const post = vi.fn().mockResolvedValue({
+      data: {
+        status: 200,
+        valores: {
+          operadores: [
+            {
+              operador: 13,
+              modalidades: [
+                {
+                  ModalidadeId: 3,
+                  ValorDeCusto: 18,
+                  ValorCustoSemAdicionais: 17,
+                  ValorSeguroCusto: 1,
+                  valorArcusto: 5,
+                  ValorDeVenda: 25.9,
+                  ValorVendaSemAdicionais: 24.9,
+                  ValorSeguroVenda: 1,
+                  ValorArVenda: 7,
+                  Prazo: 3,
+                  Conta: 55,
+                  Success: true,
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    const [opcao] = await cotadorCom(post).cotar(pedido());
+
+    expect(opcao).toMatchObject({
+      idOperadorConfig: 55,
+      prazo: 3,
+      valorFinal: 25.9,
+      valorOriginal: 18,
+      valorCustoSemAdic: 17,
+      valorVendaSemAdic: 24.9,
+      valorSeguroContrato: 1,
+      valorArContrato: 5,
+      valorArVenda: 7,
+    });
+  });
+
+  // OnlogRed is priced by the same tables as Correios, and the v2 route only
+  // routes it as Correios. It goes out as 13 and comes back as OnlogRed.
+  it("asks the API under the operator it quotes by, and answers under the log's own", async () => {
+    const post = vi.fn().mockResolvedValue(resposta([{ operador: 13, modalidades: [cotada({ modalidadeId: 4 })] }]));
+
+    const opcoes = await cotadorCom(post).cotar(
+      pedido({ modalidades: [modalidade({ idOperador: 132226, idOperadorCotacao: 13, idModalidade: 4 })] }),
+    );
+
+    expect(post.mock.calls[0][1].modalidades[0].idOperador).toBe(13);
+    expect(opcoes.map((o) => o.idOperador)).toEqual([132226]);
+  });
+
+  // Best-account quoting sends the same modality once per account.
+  it("tells apart the same modality quoted on two accounts by the account", async () => {
+    const post = vi.fn().mockResolvedValue(
+      resposta([
+        {
+          operador: 14,
+          modalidades: [
+            cotada({ modalidadeId: 3, conta: 200, valorDeVenda: 30 }),
+            cotada({ modalidadeId: 3, conta: 127, valorDeVenda: 20 }),
+          ],
+        },
+      ]),
+    );
+
+    const opcoes = await cotadorCom(post).cotar(
+      pedido({
+        modalidades: [
+          modalidade({ idOperador: 14, idModalidade: 3, idCoreOperadorConfig: 127, prazoAdicional: 1 }),
+          modalidade({ idOperador: 14, idModalidade: 3, idCoreOperadorConfig: 200, prazoAdicional: 0 }),
+        ],
+      }),
+    );
+
+    // Each answer takes its own entry's settings: the extra day is account 127's.
+    expect(opcoes.map((o) => [o.idOperadorConfig, o.valorFinal, o.prazo])).toEqual([
+      [200, 30, 3],
+      [127, 20, 4],
+    ]);
+  });
+
+  // A Correios SEDEX and an OnlogRed SEDEX both go out as operator 13 with the
+  // same modality id; the API answers them in the order they were sent.
+  it("pairs repeated modalities without an account in the order they were sent", async () => {
+    const post = vi.fn().mockResolvedValue(
+      resposta([
+        {
+          operador: 13,
+          modalidades: [cotada({ modalidadeId: 4, valorDeVenda: 20 }), cotada({ modalidadeId: 4, valorDeVenda: 15 })],
+        },
+      ]),
+    );
+
+    const opcoes = await cotadorCom(post).cotar(
+      pedido({
+        modalidades: [
+          modalidade({ idOperador: 13, idModalidade: 4, idModalidadeOnlog: 301 }),
+          modalidade({ idOperador: 132226, idOperadorCotacao: 13, idModalidade: 4, idModalidadeOnlog: 901 }),
+        ],
+      }),
+    );
+
+    expect(opcoes.map((o) => [o.idOperador, o.idModalidade, o.valorFinal])).toEqual([
+      [13, 301, 20],
+      [132226, 901, 15],
+    ]);
+  });
 });
 
 // When a sheet comes back with every row un-quotable, the first question is
