@@ -1,10 +1,9 @@
 // Process entrypoint. Boots the HTTP service in a single process and shuts it
 // down gracefully on SIGINT/SIGTERM. The service holds no database, no cache and
 // no queue; the only state is the in-memory map of sheets being quoted and
-// results waiting for the log (src/planilha/processamentos.ts). A restart loses
-// it, and the log reads that as "send the sheet again". For the same reason this
-// runs as a single instance: a second replica would not know the first one's
-// sheets.
+// results waiting for the log (src/sheet/jobs.ts). A restart loses it, and the
+// log reads that as "send the sheet again". For the same reason this runs as a
+// single instance: a second replica would not know the first one's sheets.
 
 // dotenv is a dev-only convenience for local runs; in prod the env is injected
 // directly (docker-compose env_file / real process env), so a missing module
@@ -16,14 +15,14 @@ try {
   /* no dotenv in this environment — rely on the real process env */
 }
 
-import { CotadorHttp } from "./frete/cotadorHttp";
-import { CotadorPorConta } from "./frete/cotadorPorConta";
-import { CotadorSimulado } from "./frete/cotadorSimulado";
-import { CONCORRENCIA_PADRAO } from "./frete/cotarLinhas";
-import { Cotador } from "./frete/frete";
+import { HttpQuoter } from "./freight/httpQuoter";
+import { PerAccountQuoter } from "./freight/perAccountQuoter";
+import { SimulatedQuoter } from "./freight/simulatedQuoter";
+import { DEFAULT_CONCURRENCY } from "./freight/quoteRows";
+import { Quoter } from "./freight/freight";
 import { buildServer } from "./http/server";
 import { logError, logInfo } from "./logging/logger";
-import { Processamentos } from "./planilha/processamentos";
+import { SheetJobs } from "./sheet/jobs";
 
 const PORT = Number(process.env.PORT ?? 3020);
 // The shared secret the log sends. Empty leaves the service open, which is what a
@@ -31,18 +30,18 @@ const PORT = Number(process.env.PORT ?? 3020);
 const API_TOKEN = process.env.API_TOKEN ?? "";
 // The quote API (POST /api/v2/cotacao/valores/v2). While it is unset the service
 // answers with simulated prices, so the whole path can be exercised.
-const FRETE_API_URL = process.env.FRETE_API_URL ?? "";
-const FRETE_API_KEY = process.env.FRETE_API_KEY ?? "";
-const FRETE_CONCORRENCIA = Number(process.env.FRETE_CONCORRENCIA ?? CONCORRENCIA_PADRAO);
+const FREIGHT_API_URL = process.env.FREIGHT_API_URL ?? "";
+const FREIGHT_API_KEY = process.env.FREIGHT_API_KEY ?? "";
+const FREIGHT_CONCURRENCY = Number(process.env.FREIGHT_CONCURRENCY ?? DEFAULT_CONCURRENCY);
 
 // The account rules (cubage, extra cost, best account) sit on top of whichever
-// cotador answers, so the simulated path exercises them too.
-const cotador: Cotador = new CotadorPorConta(
-  FRETE_API_URL ? new CotadorHttp(FRETE_API_URL, { apiKey: FRETE_API_KEY || undefined }) : new CotadorSimulado(),
+// quoter answers, so the simulated path exercises them too.
+const quoter: Quoter = new PerAccountQuoter(
+  FREIGHT_API_URL ? new HttpQuoter(FREIGHT_API_URL, { apiKey: FREIGHT_API_KEY || undefined }) : new SimulatedQuoter(),
 );
 
 const app = buildServer({
-  deps: { cotador, concorrencia: FRETE_CONCORRENCIA, processamentos: new Processamentos() },
+  deps: { quoter, concurrency: FREIGHT_CONCURRENCY, jobs: new SheetJobs() },
   token: API_TOKEN || undefined,
   logger: true,
 });
@@ -73,9 +72,9 @@ app
   .listen({ port: PORT, host: "0.0.0.0" })
   .then(() =>
     logInfo(`HTTP ouvindo em :${PORT}`, {
-      frete: FRETE_API_URL || "simulado",
-      concorrencia: FRETE_CONCORRENCIA,
-      autenticado: Boolean(API_TOKEN),
+      freight: FREIGHT_API_URL || "simulado",
+      concurrency: FREIGHT_CONCURRENCY,
+      authenticated: Boolean(API_TOKEN),
     }),
   )
   .catch((err) => {

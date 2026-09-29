@@ -19,86 +19,91 @@ pnpm run dev      # http://localhost:3020
 pnpm test
 ```
 
-Com `FRETE_API_URL` vazio o serviço responde com **valores simulados**, o que
+Com `FREIGHT_API_URL` vazio o serviço responde com **valores simulados**, o que
 permite testar o caminho inteiro sem a API de cotação no ar. Toda opção simulada
 vem com `(SIMULADA)` na descrição.
 
 ## A API
 
-### `POST /api/v1/planilha/processar`
+Todas as rotas ficam sob `/api/v2/sheets`, o mesmo padrão `/api/v2/<serviço>` que o
+nginx de produção repassa para os outros serviços.
+
+### `POST /api/v2/sheets`
 
 `multipart/form-data`:
 
 | campo | o que é |
 |---|---|
 | `id` | identificador da planilha — o `log` manda o hash da importação (`[A-Za-z0-9_-]`, até 64) |
-| `arquivo` | a planilha `.xls` ou `.xlsx` (layout Padrão, 23 colunas) |
-| `cepOrigem` | CEP do remetente |
-| `idCliente` | id da pessoa/cliente da importação |
-| `operadores` | ids das transportadoras escolhidas, separados por vírgula |
-| `modalidades` | JSON: as modalidades do cliente para essas transportadoras, com a precificação (ver abaixo) |
+| `file` | a planilha `.xls` ou `.xlsx` (layout Padrão, 23 colunas) |
+| `originPostalCode` | CEP do remetente |
+| `clientId` | id da pessoa/cliente da importação |
+| `carrierIds` | ids das transportadoras escolhidas, separados por vírgula |
+| `modalities` | JSON: as modalidades do cliente para essas transportadoras, com a precificação (ver abaixo) |
 
-Cada item de `modalidades` leva o que vai para a API de cotação
-(`idOperador`, `idModalidade`, `idCoreOperadorConfig`, `idTabelaCusto`,
-`idTabelaVenda`, `margemLucro`, `descPercVlFinal`, `descPercMargem`,
-`descValorFixo`, `adicionalPercVlFinal`, `adicionalValorFixoVlFinal`) e o que só o
-log sabe da modalidade (`idModalidadeOnlog`, `descricao`, `logo`,
-`prazoAdicional`, `fechaPlp` e os limites `pesoMaximo`, `medidaMaximaPorLado`,
-`medidaMaxima` — zero não limita). Quem monta é o
-`fwPlanilhaApi::MontaModalidades` do log.
+Cada item de `modalities` leva o que vai para a API de cotação
+(`carrierId`, `modalityId`, `carrierConfigId`, `costTableId`, `priceTableId`,
+`profitMargin`, `finalPriceDiscountPct`, `marginDiscountPct`, `fixedDiscount`,
+`finalPriceSurchargePct`, `finalPriceFixedSurcharge`) e o que só o log sabe da
+modalidade (`onlogModalityId`, `name`, `logo`, `extraDeliveryDays`, `closesPlp` e
+os limites `maxWeightKg`, `maxSideCm`, `maxDimensionsSumCm` — zero não limita).
+Opcionais: `quoteCarrierId` (OnlogRed cotada como Correios), `extraCost`,
+`extraCostPct` e `cubage` (`{ factor, exemption, exemptionKg }`) da conta Jadlog.
+Quem monta é o `fwPlanilhaApi::MontaModalidades` do log.
 
 Responde `200` **assim que a planilha é lida**, antes da cotação:
 
 ```json
-{ "sucesso": true, "id": "a1b2c3", "status": "processando", "total": 1000 }
+{ "success": true, "id": "a1b2c3", "status": "processing", "total": 1000 }
 ```
 
 Erro de requisição (arquivo ausente, arquivo que não é planilha, contexto ou `id`
 faltando, planilha acima de 5000 linhas) volta `400` com
-`{ "sucesso": false, "mensagem": "..." }`. Um `id` já usado volta `409`.
+`{ "success": false, "message": "..." }`. Um `id` já usado volta `409`. As
+mensagens são em português: o `log` mostra ao usuário como vieram.
 
-### `GET /api/v1/planilha/:id`
+### `GET /api/v2/sheets/:id`
 
 O status da planilha. Enquanto cota:
 
 ```json
-{ "sucesso": true, "id": "a1b2c3", "status": "processando", "total": 1000, "operadores": [1, 2] }
+{ "success": true, "id": "a1b2c3", "status": "processing", "total": 1000, "carrierIds": [1, 2] }
 ```
 
 Pronta:
 
 ```json
 {
-  "sucesso": true,
+  "success": true,
   "id": "a1b2c3",
-  "status": "concluida",
+  "status": "completed",
   "total": 1000,
-  "operadores": [1, 2],
-  "comErro": 3,
-  "cotacoes": 20,
-  "tempoMs": 109,
-  "linhas": [
+  "carrierIds": [1, 2],
+  "rowsWithErrors": 3,
+  "quoteCount": 20,
+  "durationMs": 109,
+  "rows": [
     {
-      "linha": 2,
-      "destinatario": { "nome": "MARIA SILVA", "cep": "01001-000", "...": "..." },
-      "objeto": { "pesoKg": 1, "alturaCm": 10, "larguraCm": 20, "comprimentoCm": 30, "diametroCm": 0 },
-      "valorMercadoria": 100, "valorDeclarado": 0,
-      "numeroNf": "", "chaveAcessoNf": "", "comAr": false, "controleRemetente": "",
-      "erros": [],
-      "opcoes": [ { "idOperador": 1, "idModalidade": 10, "descricaoModalidade": "SEDEX", "valorFinal": 25.9, "...": "..." } ]
+      "line": 2,
+      "recipient": { "name": "MARIA SILVA", "postalCode": "01001-000", "...": "..." },
+      "parcel": { "weightKg": 1, "heightCm": 10, "widthCm": 20, "lengthCm": 30, "diameterCm": 0 },
+      "goodsValue": 100, "declaredValue": 0,
+      "invoiceNumber": "", "invoiceAccessKey": "", "withDeliveryReceipt": false, "senderReference": "",
+      "errors": [],
+      "options": [ { "carrierId": 1, "modalityId": 10, "modalityName": "SEDEX", "finalPrice": 25.9, "...": "..." } ]
     }
   ]
 }
 ```
 
 As linhas voltam **na ordem da planilha**, cada uma com o número da linha no
-arquivo. Uma linha com problema volta com `erros` preenchido e `opcoes` vazio — ela
-nunca derruba a planilha inteira.
+arquivo. Uma linha com problema volta com `errors` preenchido e `options` vazio —
+ela nunca derruba a planilha inteira.
 
-Falha inesperada na cotação: `"status": "erro"` com `mensagem`. Planilha que o
+Falha inesperada na cotação: `"status": "failed"` com `message`. Planilha que o
 serviço não conhece (restart, resultado expirado, `id` errado): `404`.
 
-### `GET /api/v1/saude`
+### `GET /api/v2/sheets/health`
 
 `{ "status": "ok" }`.
 
@@ -113,39 +118,41 @@ Numa planilha real, mil linhas são poucos pacotes diferentes indo para poucas
 cidades. As linhas que fariam a mesma pergunta são perguntadas **uma vez só**: o
 mapa de deduplicação vive dentro da requisição e morre com ela, então preço nenhum
 envelhece entre uma importação e outra. As cotações distintas saem em paralelo, com
-teto fixo (`FRETE_CONCORRENCIA`).
+teto fixo (`FREIGHT_CONCURRENCY`).
 
-O campo `cotacoes` da resposta diz quantas cotações realmente saíram. Numa planilha
-de teste de 1000 linhas, 20.
+O campo `quoteCount` da resposta diz quantas cotações realmente saíram. Numa
+planilha de teste de 1000 linhas, 20.
 
 ## O endpoint de frete
 
-A cotação é da `cotacao-api-v2`: `POST {FRETE_API_URL}` (a rota
-`/api/v2/cotacao/valores/v2`), com a chave em `X-Api-Key` (`FRETE_API_KEY`). Uma
+A cotação é da `cotacao-api-v2`: `POST {FREIGHT_API_URL}` (a rota
+`/api/v2/cotacao/valores/v2`), com a chave em `X-Api-Key` (`FREIGHT_API_KEY`). Uma
 chamada por pacote distinto da planilha, com todas as modalidades do cliente que
-cabem naquele pacote.
+cabem naquele pacote. O body e a resposta mantêm os nomes em português da
+`cotacao-api-v2` — o contrato é dela.
 
-Tudo que sabe falar com ela está em [`src/frete/cotadorHttp.ts`](src/frete/cotadorHttp.ts) —
-`paraRequisicao` (o que mandamos) e `paraOpcao` (o que lemos de volta), com as
-fixtures em `test/frete/cotadorHttp.test.ts`.
+Tudo que sabe falar com ela está em [`src/freight/httpQuoter.ts`](src/freight/httpQuoter.ts) —
+`toRequestBody` (o que mandamos) e `toOption` (o que lemos de volta), com as
+fixtures em `test/freight/httpQuoter.test.ts`.
 
-Por cima dele, [`src/frete/cotadorPorConta.ts`](src/frete/cotadorPorConta.ts) aplica o
-que a v1 da Jadlog faz por conta e a v2 não: cota cada modalidade no peso cubado
-da conta (uma chamada por peso distinto), soma o adicional de custo da conta antes
-da margem e, quando a modalidade vem em mais de uma conta, fica com a mais barata.
+Por cima dele, [`src/freight/perAccountQuoter.ts`](src/freight/perAccountQuoter.ts)
+aplica o que a v1 da Jadlog faz por conta e a v2 não: cota cada modalidade no peso
+cubado da conta (uma chamada por peso distinto), soma o adicional de custo da conta
+antes da margem e, quando a modalidade vem em mais de uma conta, fica com a mais
+barata.
 
 ## Layout
 
 ```
-src/planilha/texto.ts        # formatação portada do fwBase do log (acentos, CEP, CPF/CNPJ, telefone)
-src/planilha/linha.ts        # as 23 colunas do layout Padrão -> linha normalizada + erros da linha
-src/planilha/leitor.ts       # arquivo .xls/.xlsx -> linhas brutas (SheetJS)
-src/frete/frete.ts           # o contrato de frete (porta Cotador, PedidoCotacao, OpcaoFrete)
-src/frete/cotadorHttp.ts     # o adaptador do endpoint de frete — o ponto de troca
-src/frete/cotadorPorConta.ts # cubagem, adicional de custo e melhor conta (paridade com a jadlog/v1)
-src/frete/cotadorSimulado.ts # valores falsos enquanto o endpoint não existe
-src/frete/cotarLinhas.ts     # deduplicação + concorrência sobre a planilha inteira
-src/planilha/processamentos.ts # planilhas em cotação e resultados à espera do log (memória, com validade)
-src/http/                    # Fastify + POST /api/v1/planilha/processar + GET /api/v1/planilha/:id
-src/main.ts                  # boot e shutdown
+src/sheet/text.ts              # formatação portada do fwBase do log (acentos, CEP, CPF/CNPJ, telefone)
+src/sheet/row.ts               # as 23 colunas do layout Padrão -> linha normalizada + erros da linha
+src/sheet/reader.ts            # arquivo .xls/.xlsx -> linhas brutas (SheetJS)
+src/sheet/jobs.ts              # planilhas em cotação e resultados à espera do log (memória, com validade)
+src/freight/freight.ts         # o contrato de frete (porta Quoter, QuoteRequest, FreightOption)
+src/freight/httpQuoter.ts      # o adaptador do endpoint de frete — o ponto de troca
+src/freight/perAccountQuoter.ts # cubagem, adicional de custo e melhor conta (paridade com a jadlog/v1)
+src/freight/simulatedQuoter.ts # valores falsos enquanto o endpoint não existe
+src/freight/quoteRows.ts       # deduplicação + concorrência sobre a planilha inteira
+src/http/                      # Fastify + POST /api/v2/sheets + GET /api/v2/sheets/:id
+src/main.ts                    # boot e shutdown
 ```

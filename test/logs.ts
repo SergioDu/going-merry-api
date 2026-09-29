@@ -2,29 +2,29 @@ import { afterEach, beforeEach, MockInstance, vi } from "vitest";
 
 // What the logger wrote, parsed back from its JSON lines. The suite runs with
 // LOG_LEVEL=silent; a test that asserts on logs turns them on for itself.
-export function capturarLogs(): Record<string, unknown>[] {
-  const linhas: Record<string, unknown>[] = [];
-  let nivelAnterior: string | undefined;
-  let espioes: MockInstance[] = [];
+export function captureLogs(): Record<string, unknown>[] {
+  const lines: Record<string, unknown>[] = [];
+  let previousLevel: string | undefined;
+  let spies: MockInstance[] = [];
 
   beforeEach(() => {
-    linhas.length = 0;
-    nivelAnterior = process.env.LOG_LEVEL;
+    lines.length = 0;
+    previousLevel = process.env.LOG_LEVEL;
     process.env.LOG_LEVEL = "debug";
 
-    const guardar = (linha: string) => {
-      linhas.push(JSON.parse(linha));
+    const keep = (line: string) => {
+      lines.push(JSON.parse(line));
     };
-    espioes = [
-      vi.spyOn(console, "log").mockImplementation(guardar),
-      vi.spyOn(console, "error").mockImplementation(guardar),
+    spies = [
+      vi.spyOn(console, "log").mockImplementation(keep),
+      vi.spyOn(console, "error").mockImplementation(keep),
     ];
   });
 
   afterEach(() => {
-    process.env.LOG_LEVEL = nivelAnterior;
-    for (const espiao of espioes) espiao.mockRestore();
+    process.env.LOG_LEVEL = previousLevel;
+    for (const spy of spies) spy.mockRestore();
   });
 
-  return linhas;
+  return lines;
 }
