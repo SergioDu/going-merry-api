@@ -1,4 +1,4 @@
-# planilha-api
+# going-merry-api
 
 Processa a planilha de importação de postagens do `log`. Recebe o arquivo e responde
 `200` assim que ele é lido; a cotação roda em segundo plano e o `log` faz polling em

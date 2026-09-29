@@ -1,5 +1,5 @@
 {
-  "name": "planilha-api",
+  "name": "going-merry-api",
   "version": "1.0.0",
   "description": "Processes the ONLOG postage import spreadsheet: parses the file, normalizes and validates each row, and quotes freight through the freight API.",
   "main": "dist/main.js",

@@ -73,7 +73,7 @@ function planilha(linhas: unknown[][]): Buffer {
   return XLSX.write(livro, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
 
-const LIMITE = "----------------------------planilhaapi";
+const LIMITE = "----------------------------goingmerryapi";
 
 // Builds the multipart body the log posts: the spreadsheet plus the context
 // fields that are the same for the whole sheet. `arquivoPrimeiro` puts the file

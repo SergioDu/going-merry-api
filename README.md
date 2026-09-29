@@ -1,4 +1,4 @@
-# planilha-api
+# going-merry-api
 
 Processa a planilha de importação de postagens do `log`: lê o arquivo, normaliza e
 valida cada linha, cota o frete e devolve JSON. O `log` continua dono da tela — ele
