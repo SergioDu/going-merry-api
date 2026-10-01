@@ -46,9 +46,12 @@ function modalityOf(option: FreightOption, request: QuoteRequest): QuoteModality
 // price the API already worked out only moves by the extra cost times the
 // margin and the final-price terms.
 function withExtraCost(option: FreightOption, modality: QuoteModality): FreightOption {
+
+
   const fixed = modality.extraCost ?? 0;
   const percent = modality.extraCostPct ?? 0;
-  const extra = fixed > 0 ? fixed : (option.cost / 100) * percent;
+  // const extra = fixed > 0 ? fixed : (option.cost / 100) * percent;
+  const extra = 0; // The cotation api already sums the extra cost to the cost, so we don't need to add it again.
 
   if (extra <= 0) return option;
 
