@@ -255,6 +255,50 @@ describe("quoteRows", () => {
     expect(peak).toBeLessThanOrEqual(4);
   });
 
+  // Transfer-group modalities are filtered per row based on origin×destination,
+  // so two rows with different destinations can get different modalities from the
+  // same global list without mutating it.
+  it("filters transfer-group modalities per row independently", async () => {
+    const quote = vi.fn<Quoter["quote"]>().mockResolvedValue([option()]);
+
+    const mpModality = modality({
+      carrierId: 132226,
+      onlogModalityId: 456,
+      name: "Fastpack MP",
+      transferGroup: 12,
+      transferGroupPriority: 1,
+      coverageRanges: [{ originStart: 4000000, originEnd: 4999999, destStart: 1000000, destEnd: 1999999 }],
+    });
+
+    const commonModality = modality({
+      carrierId: 132226,
+      onlogModalityId: 789,
+      name: "Fastpack",
+      transferGroup: 12,
+      transferGroupPriority: 2,
+      coverageRanges: [{ originStart: 4000000, originEnd: 4999999, destStart: 1000000, destEnd: 9999999 }],
+    });
+
+    const context = { originPostalCode: "04571-010", modalities: [mpModality, commonModality] };
+
+    // Row A: destination covered by both → MP wins.
+    // Row B: destination covered only by common → common wins.
+    await quoteRows(
+      [
+        row({ line: 2, recipient: { ...row().recipient, postalCode: "01001-000" } }),
+        row({ line: 3, recipient: { ...row().recipient, postalCode: "05001-000" } }),
+      ],
+      context,
+      { quote },
+    );
+
+    expect(quote).toHaveBeenCalledTimes(2);
+    // Row A gets only MP (priority 1).
+    expect(quote.mock.calls[0][0].modalities.map((m: QuoteModality) => m.onlogModalityId)).toEqual([456]);
+    // Row B gets only common (MP's coverage doesn't include 05xxxxx destination).
+    expect(quote.mock.calls[1][0].modalities.map((m: QuoteModality) => m.onlogModalityId)).toEqual([789]);
+  });
+
   it("keeps the rows in the sheet's order however the quotes resolve", async () => {
     const quote = vi.fn<Quoter["quote"]>().mockImplementation(async (request: QuoteRequest) => {
       // The later rows answer first.

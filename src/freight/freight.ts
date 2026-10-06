@@ -46,6 +46,20 @@ export interface QuoteModality {
   maxWeightKg: number;
   maxSideCm: number;
   maxDimensionsSumCm: number;
+  // OnlogRed transfer-group fields. When a modality participates in a group
+  // (transferGroup > 0), the log sends both the common and the MP variant; this
+  // service picks the right one per row based on origin×destination coverage.
+  transferGroup?: number;
+  transferGroupPriority?: number;
+  coverageRanges?: CoverageRange[];
+}
+
+// A postal-code range pair that a transfer-group modality covers.
+export interface CoverageRange {
+  originStart: number;
+  originEnd: number;
+  destStart: number;
+  destEnd: number;
 }
 
 // How an account cubes a package for one modality (tbCoreOperadorTipoCalculoCubagem):

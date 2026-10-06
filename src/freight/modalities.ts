@@ -1,7 +1,7 @@
 // The client's modalities, as the log sends them, and the registered limits that
 // decide whether a modality can carry a package at all.
 
-import { CubageParams, QuoteModality } from "./freight";
+import { CoverageRange, CubageParams, QuoteModality } from "./freight";
 
 type Raw = Record<string, unknown>;
 
@@ -36,6 +36,13 @@ function optionals(raw: Raw): Partial<QuoteModality> {
       exemptionKg: num(cubage as Raw, "exemptionKg"),
     };
     if (params.factor > 0) parsed.cubage = params;
+  }
+
+  const transferGroup = num(raw, "transferGroup");
+  if (transferGroup > 0) {
+    parsed.transferGroup = transferGroup;
+    parsed.transferGroupPriority = num(raw, "transferGroupPriority");
+    parsed.coverageRanges = parseCoverageRanges(raw.coverageRanges);
   }
 
   return parsed;
@@ -100,4 +107,81 @@ export function fitsLimits(modality: QuoteModality, size: PackageSize): boolean 
   if (modality.maxDimensionsSumCm > 0 && heightCm + widthCm + lengthCm > modality.maxDimensionsSumCm) return false;
 
   return true;
+}
+
+function parseCoverageRanges(raw: unknown): CoverageRange[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .filter((item): item is Raw => typeof item === "object" && item !== null)
+    .map((item) => ({
+      originStart: num(item, "originStart"),
+      originEnd: num(item, "originEnd"),
+      destStart: num(item, "destStart"),
+      destEnd: num(item, "destEnd"),
+    }));
+}
+
+// Strip non-digits and parse as integer (CEPs are compared numerically).
+function cepToNumber(cep: string): number {
+  return parseInt(cep.replace(/\D/g, ""), 10) || 0;
+}
+
+function isCovered(ranges: CoverageRange[], origin: number, dest: number): boolean {
+  return ranges.some(
+    (r) => origin >= r.originStart && origin <= r.originEnd && dest >= r.destStart && dest <= r.destEnd,
+  );
+}
+
+// Per-row filtering of transfer-group modalities (OnlogRed common × MP).
+//
+// Modalities without transferGroup pass through unchanged. For those with
+// transferGroup > 0, coverage is checked against the row's origin and
+// destination CEPs; then within each group, only the highest-priority
+// (lowest transferGroupPriority, excluding 0) modality is kept.
+export function filterByTransferGroup(
+  modalities: QuoteModality[],
+  originPostalCode: string,
+  destinationPostalCode: string,
+): QuoteModality[] {
+  const origin = cepToNumber(originPostalCode);
+  const dest = cepToNumber(destinationPostalCode);
+
+  // Step A: coverage filter, and separate grouped from ungrouped.
+  const ungrouped: QuoteModality[] = [];
+  const groups = new Map<number, QuoteModality[]>();
+
+  for (const m of modalities) {
+    const group = m.transferGroup;
+    if (!group || group <= 0) {
+      ungrouped.push(m);
+      continue;
+    }
+
+    // Only keep modalities whose coverage includes this route.
+    if (!isCovered(m.coverageRanges ?? [], origin, dest)) continue;
+
+    groups.set(group, [...(groups.get(group) ?? []), m]);
+  }
+
+  // Step B: within each group, keep priority-0 modalities as-is, and among the
+  // rest keep only the one with the lowest transferGroupPriority.
+  const picked: QuoteModality[] = [...ungrouped];
+
+  for (const members of groups.values()) {
+    let best: QuoteModality | undefined;
+
+    for (const m of members) {
+      const priority = m.transferGroupPriority ?? 0;
+      if (priority === 0) {
+        picked.push(m);
+        continue;
+      }
+      if (!best || priority < (best.transferGroupPriority ?? 0)) best = m;
+    }
+
+    if (best) picked.push(best);
+  }
+
+  return picked;
 }

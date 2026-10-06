@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fitsLimits, parseModalities } from "../../src/freight/modalities";
+import { filterByTransferGroup, fitsLimits, parseModalities } from "../../src/freight/modalities";
 import { QuoteModality } from "../../src/freight/freight";
 
 function modality(overrides: Partial<QuoteModality> = {}): QuoteModality {
@@ -132,5 +132,116 @@ describe("fitsLimits", () => {
   it("refuses a package whose sides add up to more than the maximum", () => {
     expect(fitsLimits(modality({ maxDimensionsSumCm: 59 }), PACKAGE)).toBe(false);
     expect(fitsLimits(modality({ maxDimensionsSumCm: 60 }), PACKAGE)).toBe(true);
+  });
+});
+
+// OnlogRed transfer-group filtering: for each row, pick the right modality
+// (MP or common) based on origin×destination coverage.
+describe("filterByTransferGroup", () => {
+  const ORIGIN = "01000-000"; // 1000000
+  const DEST = "02000-000"; // 2000000
+
+  const mpModality = modality({
+    carrierId: 132226,
+    onlogModalityId: 456,
+    name: "Fastpack MP",
+    transferGroup: 12,
+    transferGroupPriority: 1,
+    coverageRanges: [{ originStart: 1000000, originEnd: 1999999, destStart: 1000000, destEnd: 2999999 }],
+  });
+
+  const commonModality = modality({
+    carrierId: 132226,
+    onlogModalityId: 789,
+    name: "Fastpack",
+    transferGroup: 12,
+    transferGroupPriority: 2,
+    coverageRanges: [{ originStart: 1000000, originEnd: 9999999, destStart: 1000000, destEnd: 9999999 }],
+  });
+
+  it("keeps only the MP when both cover the route", () => {
+    const result = filterByTransferGroup([commonModality, mpModality], ORIGIN, DEST);
+
+    expect(result.map((m) => m.onlogModalityId)).toEqual([456]);
+  });
+
+  it("falls back to the common when the MP does not cover the route", () => {
+    const mp = { ...mpModality, coverageRanges: [{ originStart: 5000000, originEnd: 5999999, destStart: 5000000, destEnd: 5999999 }] };
+    const result = filterByTransferGroup([commonModality, mp], ORIGIN, DEST);
+
+    expect(result.map((m) => m.onlogModalityId)).toEqual([789]);
+  });
+
+  it("keeps only the MP when the common does not cover the route", () => {
+    const common = { ...commonModality, coverageRanges: [{ originStart: 5000000, originEnd: 5999999, destStart: 5000000, destEnd: 5999999 }] };
+    const result = filterByTransferGroup([common, mpModality], ORIGIN, DEST);
+
+    expect(result.map((m) => m.onlogModalityId)).toEqual([456]);
+  });
+
+  it("drops the whole group when neither covers the route", () => {
+    const uncovered = [
+      { ...mpModality, coverageRanges: [{ originStart: 5000000, originEnd: 5999999, destStart: 5000000, destEnd: 5999999 }] },
+      { ...commonModality, coverageRanges: [{ originStart: 5000000, originEnd: 5999999, destStart: 5000000, destEnd: 5999999 }] },
+    ];
+    const result = filterByTransferGroup(uncovered, ORIGIN, DEST);
+
+    expect(result).toEqual([]);
+  });
+
+  it("does not touch modalities without transferGroup", () => {
+    const sedex = modality({ onlogModalityId: 301, name: "SEDEX" });
+    const pac = modality({ onlogModalityId: 302, name: "PAC" });
+
+    const result = filterByTransferGroup([sedex, pac], ORIGIN, DEST);
+
+    expect(result.map((m) => m.onlogModalityId)).toEqual([301, 302]);
+  });
+
+  it("resolves each group independently from non-grouped modalities", () => {
+    const sedex = modality({ onlogModalityId: 301, name: "SEDEX" });
+    const result = filterByTransferGroup([sedex, commonModality, mpModality], ORIGIN, DEST);
+
+    expect(result.map((m) => m.onlogModalityId)).toEqual([301, 456]);
+  });
+
+  it("does not mutate the input array", () => {
+    const input = [commonModality, mpModality];
+    const copy = [...input];
+    filterByTransferGroup(input, ORIGIN, DEST);
+
+    expect(input).toEqual(copy);
+  });
+});
+
+describe("parseModalities with transfer-group fields", () => {
+  it("reads transfer group, priority, and coverage ranges", () => {
+    const [parsed] = parseModalities(
+      JSON.stringify([
+        {
+          ...modality(),
+          carrierId: 132226,
+          transferGroup: "12",
+          transferGroupPriority: "1",
+          coverageRanges: [{ originStart: "1000000", originEnd: "1999999", destStart: "2000000", destEnd: "2999999" }],
+        },
+      ]),
+    );
+
+    expect(parsed.transferGroup).toBe(12);
+    expect(parsed.transferGroupPriority).toBe(1);
+    expect(parsed.coverageRanges).toEqual([{ originStart: 1000000, originEnd: 1999999, destStart: 2000000, destEnd: 2999999 }]);
+  });
+
+  it("omits transfer-group fields when transferGroup is zero or absent", () => {
+    const [withZero, withoutField] = parseModalities(
+      JSON.stringify([
+        { ...modality(), transferGroup: 0 },
+        modality(),
+      ]),
+    );
+
+    expect(withZero.transferGroup).toBeUndefined();
+    expect(withoutField.transferGroup).toBeUndefined();
   });
 });

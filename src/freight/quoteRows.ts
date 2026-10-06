@@ -15,7 +15,7 @@
 // its own row only — the other 999 still come back.
 
 import { FreightOption, QuoteModality, QuoteRequest, Quoter } from "./freight";
-import { fitsLimits } from "./modalities";
+import { filterByTransferGroup, fitsLimits } from "./modalities";
 import { logInfo } from "../logging/logger";
 import { SheetRow } from "../sheet/row";
 
@@ -58,7 +58,12 @@ function buildRequest(row: SheetRow, context: QuoteContext): QuoteRequest {
     withDeliveryReceipt: row.withDeliveryReceipt,
     // The limits depend only on the package, which is part of the key below, so
     // two rows with the same key always end up asking about the same modalities.
-    modalities: context.modalities.filter((modality) => fitsLimits(modality, row.parcel)),
+    // Transfer-group filtering depends on origin+destination, also part of the key.
+    modalities: filterByTransferGroup(
+      context.modalities.filter((modality) => fitsLimits(modality, row.parcel)),
+      context.originPostalCode,
+      row.recipient.postalCode,
+    ),
   };
 }
 
